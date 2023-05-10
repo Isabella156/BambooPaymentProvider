@@ -13,6 +13,11 @@ from knox.auth import TokenAuthentication
 import datetime
 from django.db import transaction
 
+class CustomResponse(Response):
+    def __init__(self, code, msg, data, status=None, headers=None):
+        content = {'code': code, 'msg': msg, 'data': data}
+        super().__init__(data=content, status=status, headers=headers)
+
 class CreateUserAPI(CreateAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = SignupUserSerializer
@@ -55,6 +60,14 @@ class DepositView(RetrieveAPIView):
 class InvoiceView(CreateAPIView):
     queryset = Invoice.objects.all()
     serializer_class = InvoiceSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invoice = serializer.save()
+
+        response_data = serializer.data.copy()
+        return CustomResponse('201', 'successful', response_data)
     
 class PayView(GenericAPIView):
     authentication_classes = [TokenAuthentication,]
@@ -67,7 +80,7 @@ class PayView(GenericAPIView):
         user_id = request.user.id
         if serializer.is_valid(raise_exception=True):
             orderId = serializer.validated_data['orderId']
-            invoice = Invoice.objects.get(order_id=orderId)
+            invoice = Invoice.objects.get(orderId=orderId)
             amount = invoice.totalAmount
             airline = getattr(invoice, 'airline')
             key = getattr(invoice, 'key')
@@ -108,7 +121,8 @@ class PayView(GenericAPIView):
                     'user': airline_account,
                 }
                 statement = Statement.objects.create(**statement_data)
-                return Response({'orderId': orderId, 'key': key})
+                response_data = {'orderId': orderId, 'key': key}
+                return CustomResponse('200', 'successful', response_data)
             else:
                 return Response({'errors': 'Not enough balance'})
         else:

@@ -82,14 +82,16 @@ class Statement(models.Model):
         return self.user.username + str(self.description) + str(self.price)
 
 class Invoice(models.Model):
+    # Payment Provider
+    PID = models.AutoField(primary_key=True, db_column='PID')
     # Airline
-    aid = models.IntegerField()
+    AID = models.IntegerField()
     # Aggregator
-    order_id = models.IntegerField()
+    orderId = models.IntegerField()
 
     totalAmount = models.IntegerField()
     key = models.CharField(max_length=50)
     airline = models.CharField(max_length=50)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, null=True, blank=True)
     def __str__(self):
-        return self.airline + str(self.aid)
+        return self.airline + str(self.AID)

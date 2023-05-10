@@ -71,7 +71,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     key = serializers.CharField(read_only=True)
     class Meta:
         model = Invoice
-        fields = ('id', 'aid', 'order_id', 'totalAmount', 'airline', 'key')
+        fields = ('PID', 'AID', 'orderId', 'totalAmount', 'airline', 'key')
     
     def create(self, validated_data):
         key = get_random_secret_key()
@@ -80,11 +80,24 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
 class PaySerializer(serializers.Serializer):
     orderId = serializers.IntegerField()
-    print(orderId)
 
     def validate(self, attrs):
         orderId = attrs.get('orderId')
-        print(orderId)
-        if not Invoice.objects.filter(order_id=orderId).exists():
+        if not Invoice.objects.filter(orderId=orderId).exists():
             raise serializers.ValidationError('Order does not exist.')
         return attrs
+
+class TransferSerializer(serializers.Serializer):
+    phoneNumber = serializers.CharField()
+    userName = serializers.CharField()
+    transferMoney = serializers.FloatField()
+
+    def validate(self, attrs):
+        phoneNumber = attrs.get('phoneNumber')
+        userName = serializers.get('userName')
+        transferMoney = serializers.get('transferMoney')
+        if not CustomUser.objects.filter(username=phoneNumber).exists():
+            raise serializers.ValidationError('Phone number does not exist.')
+        payee = CustomUser.objects.get(username=phoneNumber)
+        if payee.name != userName:
+            raise serializers.ValidationError('Phone number does not exist.')
