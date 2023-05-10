@@ -1,17 +1,24 @@
-from django.shortcuts import render
-from rest_framework.generics import CreateAPIView, RetrieveAPIView
-from rest_framework.views import APIView
 from .models import CustomUser, Invoice, Statement
+from .serializers import SignupUserSerializer, LoginSerializer, UserSerializer, DepositSerializer, InvoiceSerializer, PaySerializer, TransferSerializer, StatementSerializer
+
+from django.shortcuts import render
+from django.contrib.auth import login
+from django.db import transaction
+
+from rest_framework.generics import CreateAPIView, RetrieveAPIView, ListAPIView, GenericAPIView
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, authentication, generics, permissions
-from rest_framework.generics import GenericAPIView
-from .serializers import SignupUserSerializer, LoginSerializer, UserSerializer, DepositSerializer, InvoiceSerializer, PaySerializer
 from rest_framework.permissions import AllowAny
+
 from knox import views as knox_views
-from django.contrib.auth import login
 from knox.auth import TokenAuthentication
+
 import datetime
-from django.db import transaction
+
+
+
+# TODO: change http response status code
 
 class CustomResponse(Response):
     def __init__(self, code, msg, data, status=None, headers=None):
@@ -23,6 +30,14 @@ class CreateUserAPI(CreateAPIView):
     serializer_class = SignupUserSerializer
     permission_classes = (AllowAny,)
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        response_data = serializer.data.copy()
+        return CustomResponse('200', 'successful', response_data)
+
 class SigninAPIView(knox_views.LoginView):
     permission_classes = (AllowAny, )
     serializer_class = LoginSerializer
@@ -33,11 +48,16 @@ class SigninAPIView(knox_views.LoginView):
             user = serializer.validated_data['user']
             login(request, user)
             response = super().post(request, format=None)
+            response = response.data
+            user = response["user"]
+            response.update(user)
+            del response["user"]
         else:
-            return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(response.data, status=status.HTTP_200_OK)
+        return CustomResponse('200', 'successful', response)
 
+# TODO: new statement
 class DepositView(RetrieveAPIView):
     authentication_classes = [TokenAuthentication,]
     permission_classes = [permissions.IsAuthenticated,]
@@ -47,15 +67,26 @@ class DepositView(RetrieveAPIView):
         serializer = self.serializer_class(data=request.data)
         user_id = request.user.id
         if serializer.is_valid(raise_exception=True):
-            amount = serializer.validated_data['amount']
+            amount = serializer.validated_data['depositMoney']
             user = CustomUser.objects.get(pk=user_id)
             # deposit money
             user.balance += amount
             balance = user.balance
             user.save()
-            return Response({'user_balance': balance})
+
+            # new statement
+            statement_data = {
+                    'description': 'deposit',
+                    'price': amount,
+                    'status': True,
+                    'user': user,
+                }
+            statement = Statement.objects.create(**statement_data)
+            
+            response_data = {'userBalance': balance}
+            return CustomResponse('200', 'successful', response_data)
         else:
-            return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class InvoiceView(CreateAPIView):
     queryset = Invoice.objects.all()
@@ -68,7 +99,8 @@ class InvoiceView(CreateAPIView):
 
         response_data = serializer.data.copy()
         return CustomResponse('201', 'successful', response_data)
-    
+
+# TODO: return more than 1 invoice
 class PayView(GenericAPIView):
     authentication_classes = [TokenAuthentication,]
     permission_classes = [permissions.IsAuthenticated,]
@@ -109,7 +141,6 @@ class PayView(GenericAPIView):
                 statement = Statement.objects.create(**statement_data)
                 # airline account
                 airline_username = airline_dictionary[airline][0]
-                print(airline_username)
                 airline_account = CustomUser.objects.get(username=airline_username)
                 airline_account.balance += amount
                 airline_account.save()
@@ -124,6 +155,59 @@ class PayView(GenericAPIView):
                 response_data = {'orderId': orderId, 'key': key}
                 return CustomResponse('200', 'successful', response_data)
             else:
-                return Response({'errors': 'Not enough balance'})
+                return CustomResponse('400', 'fail', 'Not enough money', status=HTTP_400_BAD_REQUEST)
         else:
-            return Response({'result': 'fail'})
+            return CustomResponse('400', 'fail', serializer.errors, status=HTTP_400_BAD_REQUEST)
+
+class TransferView(GenericAPIView):
+    authentication_classes = [TokenAuthentication,]
+    permission_classes = [permissions.IsAuthenticated,]
+    serializer_class = TransferSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        user_id = request.user.id
+        if serializer.is_valid(raise_exception=True):
+            user = CustomUser.objects.get(pk=user_id)
+            amount = serializer.validated_data['transferMoney']
+            if user.balance < amount:
+                response_data = {'error': 'Not enough money'}
+                return CustomResponse('400', 'fail', response_data)
+            else:
+                user.balance -= amount
+                user.save()
+                payee = CustomUser.objects.get(username=serializer.validated_data['phoneNumber'])
+                payee.balance += amount
+                payee.save()
+                response_data = {
+                    'transferStatus': "True",
+                    'balance': user.balance
+                }
+                return CustomResponse('200', 'successful', response_data)
+
+
+class BalanceView(RetrieveAPIView):
+    authentication_classes = [TokenAuthentication,]
+    permission_classes = [permissions.IsAuthenticated,]
+
+    def get(self, request, *args, **kwargs):
+        user_id = request.user.id
+        user = CustomUser.objects.get(pk=user_id)
+        response_data = {
+            "balance": user.balance
+        }
+        return CustomResponse('200', 'successful', response_data)
+
+class StatementView(ListAPIView):
+    authentication_classes = [TokenAuthentication,]
+    permission_classes = [permissions.IsAuthenticated,]
+    serializer_class = StatementSerializer
+
+    def get(self, request, *args, **kwargs):
+        user_id = request.user.id
+        queryset = Statement.objects.filter(user_id=user_id)
+        serializer = self.get_serializer(queryset, many=True)
+        response_data = {
+            "statements": serializer.data
+        }
+        return CustomResponse('200', 'successful', serializer.data)

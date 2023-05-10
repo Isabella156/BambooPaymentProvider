@@ -64,7 +64,7 @@ class CustomUser(AbstractBaseUser):
     objects = UserManager()
 
     def __str__(self):
-        return str(self.username)
+        return str(self.name) + str(self.username)
 
     def has_module_perms(self, app_label):
         return True

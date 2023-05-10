@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CustomUser, Invoice
+from .models import CustomUser, Invoice, Statement
 from django.contrib.auth import authenticate
 import hashlib
 from phonenumbers import parse as phonenumbers_parse
@@ -15,10 +15,7 @@ class SignupUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ('nickname', 'name', 'user_id_number', 'user_phone', 'user_email', 'password')
-        # fields = '__all__'
-        # extra_kwargs = {
-        #     'password': {'required': True}
-        # }
+
     def validate(self, attrs):
         user_phone = attrs.get('user_phone')
         if CustomUser.objects.filter(user_phone=user_phone).exists():
@@ -51,8 +48,8 @@ class LoginSerializer(serializers.Serializer):
 
         # user = authenticate(request=self.context.get('request'), username=username,
                             # password=password)
-        user = authenticate(request=self.context.get('request'), username='+8613281129456',
-                            password='123456')
+        user = authenticate(request=self.context.get('request'), username=username,
+                            password=password)
         if not user:
             raise serializers.ValidationError("Wrong Credentials.")
 
@@ -60,10 +57,10 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 class DepositSerializer(serializers.Serializer):
-    amount = serializers.IntegerField()
+    depositMoney = serializers.IntegerField()
     def validate(self, attrs):
-        amount = attrs.get('amount')
-        if amount < 0:
+        depositMoney = attrs.get('depositMoney')
+        if depositMoney < 0:
             raise serializers.ValidationError("The amount of money must be greater than zero!")
         return attrs
 
@@ -77,6 +74,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
         key = get_random_secret_key()
         validated_data['key'] = key
         return Invoice.objects.create(**validated_data)
+
+class StatementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Statement
+        fields = ('time', 'description', 'price', 'status')
 
 class PaySerializer(serializers.Serializer):
     orderId = serializers.IntegerField()
@@ -94,10 +96,11 @@ class TransferSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         phoneNumber = attrs.get('phoneNumber')
-        userName = serializers.get('userName')
-        transferMoney = serializers.get('transferMoney')
+        userName = attrs.get('userName')
+        transferMoney = attrs.get('transferMoney')
         if not CustomUser.objects.filter(username=phoneNumber).exists():
             raise serializers.ValidationError('Phone number does not exist.')
         payee = CustomUser.objects.get(username=phoneNumber)
         if payee.name != userName:
             raise serializers.ValidationError('Phone number does not exist.')
+        return attrs

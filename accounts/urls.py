@@ -10,4 +10,7 @@ urlpatterns = [
     path('deposit/', views.DepositView.as_view()),
     path('invoice/', views.InvoiceView.as_view()),
     path('pay/', views.PayView.as_view()),
+    path('transfer/', views.TransferView.as_view()),
+    path('balance/', views.BalanceView.as_view()),
+    path('statement/', views.StatementView.as_view()),
 ]
