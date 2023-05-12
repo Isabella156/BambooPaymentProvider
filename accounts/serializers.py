@@ -65,6 +65,19 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = ('PID', 'AID', 'orderId', 'totalAmount', 'airline', 'key')
+
+    def validate(self, attrs):
+        airline = attrs.get('airline')
+        airline_dictionary = {
+            'boyboy': ['+8618301234567'],
+            'KingAirline': ['+8613507654321'],
+            'CandyAirline': ['+8615109876543'],
+            'Elephant': ['+8613554321098'],
+            'Frank': ['+8613123456789']
+        }
+        if airline not in airline_dictionary:
+            raise serializers.ValidationError("Please enter the correct airline name: boyboy, KingAirline, CandyAirline, Elephant, Frank")
+        return attrs
     
     def create(self, validated_data):
         key = get_random_secret_key()

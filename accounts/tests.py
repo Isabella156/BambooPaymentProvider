@@ -333,6 +333,17 @@ class TestViews(TestCase):
 		self.assertContains(HttpResponse(response.content.decode()), 'AID')
 		self.assertContains(HttpResponse(response.content.decode()), 'totalAmount')
 		self.assertContains(HttpResponse(response.content.decode()), 'airline')
+
+	def test_invoice_not_support_airline(self):
+		request = {
+		    "orderId": 1,
+		    "AID": 1,
+		    "totalAmount": 100,
+		    "airline": "airline1"
+		}
+		response = self.client.post(self.invoice_url, request)
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'Please enter the correct airline name: boyboy, KingAirline, CandyAirline, Elephant, Frank')
 	
 	# pay
 	def test_pay_successful(self):
