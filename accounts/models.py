@@ -8,8 +8,6 @@ from django.db import models
 # Create your models here.
 class UserManager(BaseUserManager):
     def create_user(self, nickname, password, name, user_id_number, user_phone, user_email, **extra_fields):
-        if not user_phone:
-            raise ValueError("The phone number is not given.")
         user_email = self.normalize_email(user_email)
         hash_id_number = hashlib.sha256(user_id_number.encode()).hexdigest()
         user = self.model(
@@ -26,16 +24,10 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
-    # TODO: extra fields change
     def create_superuser(self, nickname, password, name, user_id_number, user_phone, user_email, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
-        if not extra_fields.get('is_staff'):
-            raise ValueError("Superuser must have is_staff = True")
-
-        if not extra_fields.get('is_superuser'):
-            raise ValueError("Superuser must have is_superuser = True")
         return self.create_user(nickname, password, name, user_id_number, user_phone, user_email, **extra_fields)
 
 class CustomUser(AbstractBaseUser):
@@ -92,6 +84,5 @@ class Invoice(models.Model):
     totalAmount = models.IntegerField()
     key = models.CharField(max_length=50)
     airline = models.CharField(max_length=50)
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, null=True, blank=True)
     def __str__(self):
         return self.airline + str(self.AID)

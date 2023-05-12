@@ -16,10 +16,6 @@ from knox.auth import TokenAuthentication
 
 import datetime
 
-
-
-# TODO: change http response status code
-
 class CustomResponse(Response):
     def __init__(self, code, msg, data, status=None, headers=None):
         content = {'code': code, 'msg': msg, 'data': data}
@@ -36,11 +32,7 @@ class CreateUserAPI(CreateAPIView):
             user = serializer.save()
             response_data = serializer.data.copy()
             return CustomResponse('200', 'successful', response_data)
-        else:
-            response_data = serializer.errors
-            return CustomResponse('400', 'fail', response_data)
         
-
 class SigninAPIView(knox_views.LoginView):
     permission_classes = (AllowAny, )
     serializer_class = LoginSerializer
@@ -55,10 +47,7 @@ class SigninAPIView(knox_views.LoginView):
             user = response["user"]
             response.update(user)
             del response["user"]
-        else:
-            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        return CustomResponse('200', 'successful', response)
+            return CustomResponse('200', 'successful', response)
 
 class DepositView(RetrieveAPIView):
     authentication_classes = [TokenAuthentication,]
@@ -159,8 +148,6 @@ class PayView(GenericAPIView):
                     return CustomResponse('200', 'successful', response_data)
                 else:
                     return CustomResponse('400', 'fail', 'Not enough money', status=status.HTTP_400_BAD_REQUEST)
-        else:
-            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class TransferView(GenericAPIView):
     authentication_classes = [TokenAuthentication,]
@@ -206,7 +193,6 @@ class TransferView(GenericAPIView):
                     'balance': user.balance
                 }
                 return CustomResponse('200', 'successful', response_data)
-
 
 class BalanceView(RetrieveAPIView):
     authentication_classes = [TokenAuthentication,]

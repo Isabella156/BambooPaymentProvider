@@ -1,7 +1,8 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.http import HttpResponse
-from knox.auth import TokenAuthentication
+from django.contrib.auth import get_user_model
+import hashlib
 
 # Create your tests here.
 class TestViews(TestCase):
@@ -17,6 +18,16 @@ class TestViews(TestCase):
 		self.statement_url = reverse('statement')
 		self.signout_url = reverse('signout')
 		self.signout_all_url = reverse('signout_all')
+
+		self.User = get_user_model()
+		self.user_data = {
+		    "nickname": "tommy",
+		    "name": "Tommy Lee",
+		    "user_id_number": "340323198705157512",
+		    "user_phone": "+8615812345679",
+		    "user_email": "tommyleeexample.com",
+		    "password": "abc123"
+		}
 
 	def airline_signup(self):
 		request = {
@@ -69,10 +80,24 @@ class TestViews(TestCase):
 		response = self.client.post(self.deposit_url, request, **headers)
 		return response
 
-	# TODO: all token, invalid token
-	# TODO: all field, no field
+	
+	# create superuser
+	def test_create_superuser(self):
+		user = self.User.objects.create_superuser(**self.user_data)
+		self.assertTrue(user.is_staff)
+		self.assertTrue(user.is_superuser)
+		self.assertTrue(user.is_active)
 
-	'''
+		self.assertEqual(user.username, self.user_data['user_phone'])
+
+		hashed_id_number = hashlib.sha256(self.user_data['user_id_number'].encode()).hexdigest()
+		self.assertEqual(user.user_id_number, hashed_id_number)
+
+		for field, value in self.user_data.items():
+			if field not in ('password', 'user_id_number', 'user_phone', 'user_email'):
+				self.assertEqual(getattr(user, field), value)
+	
+	# signup
 	def test_signup_successful(self):
 		request = {
 		    "nickname": "lily",
@@ -107,10 +132,10 @@ class TestViews(TestCase):
 		    "user_email": "lily@example.com",
 		    "password": "abcdef"
 		}
-		response = self.client.post(self.signup_url, request)
+		self.client.post(self.signup_url, request)
 		response = self.client.post(self.signup_url, request)
 		self.assertEquals(response.status_code, 400)
-		self.assertContains(HttpResponse(response.content.decode()), 'user_phone')
+		self.assertContains(HttpResponse(response.content.decode()), 'custom user with this user phone already exists.')
 
 	def test_signup_invalid_phone_number(self):
 		request = {
@@ -151,6 +176,7 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Enter a valid email address.')
 	
+	# signin
 	def test_signin_successful(self):
 		response = self.signin()
 		self.assertEquals(response.status_code, 200)
@@ -163,14 +189,6 @@ class TestViews(TestCase):
 		self.assertContains(HttpResponse(response.content.decode()), 'username')
 		self.assertContains(HttpResponse(response.content.decode()), 'password')
 
-	def test_signin_invalid_phone_number(self):
-		request = {
-		    "username": "+861380100100",
-		    "password": "abcdef"
-		}
-		response = self.client.post(self.signin_url, request)
-		self.assertContains(HttpResponse(response.content.decode()), 'Invalid phone number')
-
 	def test_signin_no_phone_number(self):
 		request = {
 		    "username": "+8613800100100",
@@ -180,6 +198,14 @@ class TestViews(TestCase):
 
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Phone number does not exist')
+
+	def test_signin_invalid_phone_number(self):
+		request = {
+		    "username": "+861380100100",
+		    "password": "abcdef"
+		}
+		response = self.client.post(self.signin_url, request)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid phone number')
 
 	def test_signin_wrong_credentials(self):
 		request = {
@@ -198,8 +224,8 @@ class TestViews(TestCase):
 		response = self.client.post(self.signin_url, request)
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Wrong Credentials.')
-	# TODO: signout, signout-all
 	
+	# signout
 	def test_signout_successful(self):
 		response = self.signin().json()
 		token = response["data"]["token"]
@@ -222,6 +248,7 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
 	
+	# signout all
 	def test_signout_all_successful(self):
 		response = self.signin().json()
 		token = response["data"]["token"]
@@ -244,13 +271,13 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
 	
-	# TODO: new statement
+	# deposit
 	def test_deposit_successful(self):
 		response = self.deposit(100)
 		self.assertEquals(response.status_code, 200)
 		self.assertContains(response, '"userBalance":100')
 	
-	def test_deposit_not_authenticated(self):
+	def test_deposit_no_credential(self):
 		response = self.signin().json()
 		request = {
 	    	"depositMoney": 100
@@ -258,6 +285,24 @@ class TestViews(TestCase):
 		response = self.client.post(self.deposit_url, request)
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), '"detail":"Authentication credentials were not provided."')
+
+	def test_deposit_invalid_token(self):
+		headers = {
+        	'HTTP_AUTHORIZATION': 'Token 123',
+    	}
+		response = self.client.post(self.deposit_url, **headers)
+		self.assertEquals(response.status_code, 401)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
+	
+	def test_deposit_no_fields(self):
+		response = self.signin().json()
+		token = response["data"]["token"]
+		headers = {
+        	'HTTP_AUTHORIZATION': f'Token {token}',
+    	}
+		response = self.client.post(self.deposit_url, **headers)
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'depositMoney')
 	
 	def test_deposit_negative_amount(self):
 		response = self.signin().json()
@@ -272,12 +317,14 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'The amount of money must be greater than zero!')
 	
+	# invoice
 	def test_invoice_successful(self):
 		response = self.invoice()
 		self.assertEquals(response.status_code, 200)
 		self.assertContains(response, 'PID')
 		self.assertContains(response, 'AID')
 		self.assertContains(response, 'key')
+	
 	def test_invoice_no_field(self):
 		request = {}
 		response = self.client.post(self.invoice_url, request)
@@ -287,6 +334,7 @@ class TestViews(TestCase):
 		self.assertContains(HttpResponse(response.content.decode()), 'totalAmount')
 		self.assertContains(HttpResponse(response.content.decode()), 'airline')
 	
+	# pay
 	def test_pay_successful(self):
 		self.invoice()
 		self.airline_signup()
@@ -315,6 +363,24 @@ class TestViews(TestCase):
 		response = self.client.post(self.pay_url, request)
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Authentication credentials were not provided.')
+	
+	def test_pay_invalid_token(self):
+		headers = {
+	    	'HTTP_AUTHORIZATION': 'Token 123',
+		}
+		response = self.client.post(self.pay_url, **headers)
+		self.assertEquals(response.status_code, 401)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
+	
+	def test_pay_no_fields(self):
+		response = self.signin().json()
+		token = response["data"]["token"]
+		headers = {
+        	'HTTP_AUTHORIZATION': f'Token {token}',
+    	}
+		response = self.client.post(self.pay_url, **headers)
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'orderId')
 	
 	def test_pay_no_order(self):
 		response = self.signin().json()
@@ -358,8 +424,8 @@ class TestViews(TestCase):
 		response = self.client.post(self.pay_url, request, **headers)
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Not enough money')
-	# TODO: no field error
 	
+	# transfer
 	def test_transfer_successful(self):
 		response = self.signin().json()
 		token = response["data"]["token"]
@@ -389,7 +455,7 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 200)
 		self.assertContains(response, 'successful')
 		self.assertContains(response, '"balance":50.0')
-	# TODO: no field
+
 	def test_transfer_no_credential(self):
 		request = {
 		    "phoneNumber": "+8615812345678",
@@ -399,6 +465,43 @@ class TestViews(TestCase):
 		response = self.client.post(self.transfer_url, request)
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Authentication credentials were not provided.')
+	
+	def test_transfer_invalid_token(self):
+		headers = {
+	    	'HTTP_AUTHORIZATION': 'Token 123',
+		}
+		response = self.client.post(self.transfer_url, **headers)
+		self.assertEquals(response.status_code, 401)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
+	
+	def test_transfer_no_fields(self):
+		response = self.signin().json()
+		token = response["data"]["token"]
+		headers = {
+        	'HTTP_AUTHORIZATION': f'Token {token}',
+    	}
+		response = self.client.post(self.transfer_url, **headers)
+		
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'phoneNumber')
+		self.assertContains(HttpResponse(response.content.decode()), 'userName')
+		self.assertContains(HttpResponse(response.content.decode()), 'transferMoney')
+	
+	def test_transfer_invalid_phone_number(self):
+		response = self.signin().json()
+		token = response["data"]["token"]
+		headers = {
+        	'HTTP_AUTHORIZATION': f'Token {token}',
+    	}
+		request = {
+		    "phoneNumber": "+861581234567",
+		    "userName": "Tommy Lee",
+		    "transferMoney": 150
+		}
+		response = self.client.post(self.transfer_url, request, **headers)
+		
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid phone number')
 	
 	def test_transfer_negative_amount_of_money(self):
 		response = self.signin().json()
@@ -414,8 +517,23 @@ class TestViews(TestCase):
 		response = self.client.post(self.transfer_url, request, **headers)
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Cannot transfer negative amount of money.')
-	
+
 	def test_transfer_payee_does_not_exist(self):
+		response = self.signin().json()
+		token = response["data"]["token"]
+		headers = {
+        	'HTTP_AUTHORIZATION': f'Token {token}',
+    	}
+		request = {
+		    "phoneNumber": "+8615812345678",
+		    "userName": "Tommy Lee",
+		    "transferMoney": 150
+		}
+		response = self.client.post(self.transfer_url, request, **headers)
+		self.assertEquals(response.status_code, 400)
+		self.assertContains(HttpResponse(response.content.decode()), 'Payee does not exist.')
+	
+	def test_transfer_mismatch_phone_number_and_name(self):
 		response = self.signin().json()
 		request = {
 		    "nickname": "tommy",
@@ -439,7 +557,7 @@ class TestViews(TestCase):
 		response = self.client.post(self.transfer_url, request, **headers)
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Payee\'s name and phone number does not match')
-	
+
 	def test_transfer_not_enough_money(self):
 		response = self.signin().json()
 		request = {
@@ -465,6 +583,7 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 400)
 		self.assertContains(HttpResponse(response.content.decode()), 'Not enough money')
 	
+	# balance
 	def test_balance_successful(self):
 		response = self.signin().json()
 		token = response["data"]["token"]
@@ -472,7 +591,6 @@ class TestViews(TestCase):
         	'HTTP_AUTHORIZATION': f'Token {token}',
     	}
 		response = self.client.get(self.balance_url, **headers)
-		print(response.content.decode())
 		self.assertEquals(response.status_code, 200)
 		self.assertContains(response, 'successful')
 		self.assertContains(response, '"balance":0')
@@ -481,7 +599,6 @@ class TestViews(TestCase):
 		}
 		self.client.post(self.deposit_url, request, **headers)
 		response = self.client.get(self.balance_url, **headers)
-		print(response.content.decode())
 		self.assertEquals(response.status_code, 200)
 		self.assertContains(response, 'successful')
 		self.assertContains(response, '"balance":200')
@@ -491,6 +608,15 @@ class TestViews(TestCase):
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Authentication credentials were not provided.')
 	
+	def test_balance_invalid_token(self):
+		headers = {
+	    	'HTTP_AUTHORIZATION': 'Token 123',
+		}
+		response = self.client.post(self.balance_url, **headers)
+		self.assertEquals(response.status_code, 401)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
+	
+	# statement
 	def test_statement_successful(self):
 		response = self.signin().json()
 		token = response["data"]["token"]
@@ -528,5 +654,13 @@ class TestViews(TestCase):
 		response = self.client.get(self.statement_url)
 		self.assertEquals(response.status_code, 401)
 		self.assertContains(HttpResponse(response.content.decode()), 'Authentication credentials were not provided.')
-	'''
+
+	def test_statement_invalid_token(self):
+		headers = {
+	    	'HTTP_AUTHORIZATION': 'Token 123',
+		}
+		response = self.client.post(self.statement_url, **headers)
+		self.assertEquals(response.status_code, 401)
+		self.assertContains(HttpResponse(response.content.decode()), 'Invalid token')
+	
 # print(response.content.decode())

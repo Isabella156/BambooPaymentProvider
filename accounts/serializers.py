@@ -15,15 +15,18 @@ class SignupUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ('nickname', 'name', 'user_id_number', 'user_phone', 'user_email', 'password')
+        extra_kwargs = {
+            'nickname': {
+                'required': True
+            }
+        }
 
     def validate(self, attrs):
         user_phone = attrs.get('user_phone')
-        if CustomUser.objects.filter(user_phone=user_phone).exists():
-            raise serializers.ValidationError('User with this phone number already exists.')
+        parsed_phone = phonenumbers_parse(user_phone, None)
         return attrs
 
     def create(self, validated_data):
-        print(validated_data)
         user = CustomUser.objects.create_user(**validated_data)
         return user
 
@@ -35,19 +38,12 @@ class LoginSerializer(serializers.Serializer):
         username = attrs.get('username')
         password = attrs.get('password')
         parsed_phone = phonenumbers_parse(username, None)
-        print(username)
-        if not username:
-        	raise serializers.ValidationError("Please give username.")
-        if not password:
-            raise serializers.ValidationError("Please give password.")
         if not phonenumbers.is_valid_number(parsed_phone):
             raise serializers.ValidationError('Invalid phone number')
 
         if not CustomUser.objects.filter(username=username).exists():
             raise serializers.ValidationError('Phone number does not exist.')
 
-        # user = authenticate(request=self.context.get('request'), username=username,
-                            # password=password)
         user = authenticate(request=self.context.get('request'), username=username,
                             password=password)
         if not user:
@@ -98,9 +94,17 @@ class TransferSerializer(serializers.Serializer):
         phoneNumber = attrs.get('phoneNumber')
         userName = attrs.get('userName')
         transferMoney = attrs.get('transferMoney')
+        if transferMoney < 0:
+            raise serializers.ValidationError('Cannot transfer negative amount of money.')
+        
+        parsed_phone = phonenumbers_parse(phoneNumber, None)
+        if not phonenumbers.is_valid_number(parsed_phone):
+            raise serializers.ValidationError('Invalid phone number')
+        
         if not CustomUser.objects.filter(username=phoneNumber).exists():
-            raise serializers.ValidationError('Phone number does not exist.')
+            raise serializers.ValidationError('Payee does not exist.')
+        
         payee = CustomUser.objects.get(username=phoneNumber)
         if payee.name != userName:
-            raise serializers.ValidationError('Phone number does not exist.')
+            raise serializers.ValidationError('Payee\'s name and phone number does not match')
         return attrs
