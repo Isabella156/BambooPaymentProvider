@@ -32,11 +32,14 @@ class CreateUserAPI(CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-
-        response_data = serializer.data.copy()
-        return CustomResponse('200', 'successful', response_data)
+        if serializer.is_valid(raise_exception=True):
+            user = serializer.save()
+            response_data = serializer.data.copy()
+            return CustomResponse('200', 'successful', response_data)
+        else:
+            response_data = serializer.errors
+            return CustomResponse('400', 'fail', response_data)
+        
 
 class SigninAPIView(knox_views.LoginView):
     permission_classes = (AllowAny, )
@@ -57,7 +60,6 @@ class SigninAPIView(knox_views.LoginView):
 
         return CustomResponse('200', 'successful', response)
 
-# TODO: new statement
 class DepositView(RetrieveAPIView):
     authentication_classes = [TokenAuthentication,]
     permission_classes = [permissions.IsAuthenticated,]
@@ -71,22 +73,20 @@ class DepositView(RetrieveAPIView):
             user = CustomUser.objects.get(pk=user_id)
             # deposit money
             user.balance += amount
-            balance = user.balance
             user.save()
-
+            balance = user.balance
+            
             # new statement
             statement_data = {
                     'description': 'deposit',
                     'price': amount,
                     'status': True,
                     'user': user,
-                }
+            }
             statement = Statement.objects.create(**statement_data)
             
             response_data = {'userBalance': balance}
             return CustomResponse('200', 'successful', response_data)
-        else:
-            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class InvoiceView(CreateAPIView):
     queryset = Invoice.objects.all()
@@ -100,7 +100,6 @@ class InvoiceView(CreateAPIView):
         response_data = serializer.data.copy()
         return CustomResponse('201', 'successful', response_data)
 
-# TODO: return more than 1 invoice
 class PayView(GenericAPIView):
     authentication_classes = [TokenAuthentication,]
     permission_classes = [permissions.IsAuthenticated,]
@@ -112,52 +111,56 @@ class PayView(GenericAPIView):
         user_id = request.user.id
         if serializer.is_valid(raise_exception=True):
             orderId = serializer.validated_data['orderId']
-            invoice = Invoice.objects.get(orderId=orderId)
-            amount = invoice.totalAmount
-            airline = getattr(invoice, 'airline')
-            key = getattr(invoice, 'key')
-            user = CustomUser.objects.get(pk=user_id)
-
-            # airline dictionary
-            airline_dictionary = {
-                'airline1': ['+8618301234567'],
-                'airline2': ['+8613507654321'],
-                'airline3': ['+8615109876543'],
-                'airline4': ['+8613554321098'],
-                'airline5': ['+8613123456789']
-            }
-
-            # customer account
-            if user.balance >= amount:
-                user.balance -= amount
-                user.save()
-                # new statement
-                statement_data = {
-                    'description': airline,
-                    'price': amount,
-                    'status': False,
-                    'user': user,
-                }
-                statement = Statement.objects.create(**statement_data)
-                # airline account
-                airline_username = airline_dictionary[airline][0]
-                airline_account = CustomUser.objects.get(username=airline_username)
-                airline_account.balance += amount
-                airline_account.save()
-                # new statement
-                statement_data = {
-                    'description': airline,
-                    'price': amount,
-                    'status': True,
-                    'user': airline_account,
-                }
-                statement = Statement.objects.create(**statement_data)
-                response_data = {'orderId': orderId, 'key': key}
-                return CustomResponse('200', 'successful', response_data)
+            invoiceSet = Invoice.objects.filter(orderId=orderId)
+            if invoiceSet.count() > 1:
+                return CustomResponse('400', 'fail', 'More than one order to pay', status=status.HTTP_400_BAD_REQUEST)
             else:
-                return CustomResponse('400', 'fail', 'Not enough money', status=HTTP_400_BAD_REQUEST)
+                invoice = invoiceSet.first()
+                amount = invoice.totalAmount
+                airline = getattr(invoice, 'airline')
+                key = getattr(invoice, 'key')
+                user = CustomUser.objects.get(pk=user_id)
+
+                # airline dictionary
+                airline_dictionary = {
+                    'boyboy': ['+8618301234567'],
+                    'KingAirline': ['+8613507654321'],
+                    'CandyAirline': ['+8615109876543'],
+                    'Elephant': ['+8613554321098'],
+                    'Frank': ['+8613123456789']
+                }
+
+                # customer account
+                if user.balance >= amount:
+                    user.balance -= amount
+                    user.save()
+                    # new statement
+                    statement_data = {
+                        'description': airline,
+                        'price': amount,
+                        'status': False,
+                        'user': user,
+                    }
+                    statement = Statement.objects.create(**statement_data)
+                    # airline account
+                    airline_username = airline_dictionary[airline][0]
+                    airline_account = CustomUser.objects.get(username=airline_username)
+                    airline_account.balance += amount
+                    airline_account.save()
+                    # new statement
+                    statement_data = {
+                        'description': airline,
+                        'price': amount,
+                        'status': True,
+                        'user': airline_account,
+                    }
+                    statement = Statement.objects.create(**statement_data)
+                    response_data = {'orderId': orderId, 'key': key}
+                    return CustomResponse('200', 'successful', response_data)
+                else:
+                    return CustomResponse('400', 'fail', 'Not enough money', status=status.HTTP_400_BAD_REQUEST)
         else:
-            return CustomResponse('400', 'fail', serializer.errors, status=HTTP_400_BAD_REQUEST)
+            return CustomResponse('400', 'fail', serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class TransferView(GenericAPIView):
     authentication_classes = [TokenAuthentication,]
@@ -172,13 +175,32 @@ class TransferView(GenericAPIView):
             amount = serializer.validated_data['transferMoney']
             if user.balance < amount:
                 response_data = {'error': 'Not enough money'}
-                return CustomResponse('400', 'fail', response_data)
+                return CustomResponse('400', 'fail', response_data, status=status.HTTP_400_BAD_REQUEST)
             else:
                 user.balance -= amount
                 user.save()
+                
                 payee = CustomUser.objects.get(username=serializer.validated_data['phoneNumber'])
                 payee.balance += amount
                 payee.save()
+                payer_name = user.name
+                payee_name = payee.name
+                # new statement for payer
+                statement_data = {
+                    'description': f'transfer to {payee_name}',
+                    'price': amount,
+                    'status': False,
+                    'user': user,
+                }
+                statement = Statement.objects.create(**statement_data)
+                # new statement for payee
+                statement_data = {
+                    'description': f'transfer from {payer_name} ',
+                    'price': amount,
+                    'status': True,
+                    'user': payee,
+                }
+                statement = Statement.objects.create(**statement_data)
                 response_data = {
                     'transferStatus': "True",
                     'balance': user.balance
